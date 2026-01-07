@@ -15,6 +15,8 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+/* ----------------------------- UI Components ----------------------------- */
+
 function Stepper({ phase }: { phase: Phase }) {
   const steps: Array<{ key: Phase; label: string }> = [
     { key: "upload", label: "Cargar" },
@@ -164,6 +166,165 @@ function TextArea({
   );
 }
 
+/* ------------------------- Helpers for option text ------------------------ */
+
+function optionText(q: Question, key: string | undefined) {
+  if (!key) return null;
+  const k = key.toUpperCase();
+  const found = q.options.find((o) => o.key.toUpperCase() === k);
+  return found?.text ?? null;
+}
+
+function OptionBadge({ k, active }: { k: string; active?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "mt-0.5 h-7 w-7 rounded-full grid place-items-center text-sm font-bold border",
+        active
+          ? "bg-indigo-600 border-indigo-600 text-white"
+          : "bg-white border-slate-300 text-slate-700"
+      )}
+    >
+      {k}
+    </div>
+  );
+}
+
+/* ----------------------------- NavPanel (OUTSIDE Page) ----------------------------- */
+
+function NavPanel({
+  compact,
+  exam,
+  index,
+  answers,
+  flagged,
+  answeredCount,
+  flaggedCount,
+  onGoTo,
+  onToggleFlagCurrent,
+  canPrev,
+  canNext,
+  onPrev,
+  onNext,
+  onCloseMobile,
+  currentId,
+}: {
+  compact?: boolean;
+  exam: Question[];
+  index: number;
+  answers: Record<string, string>;
+  flagged: Record<string, boolean>;
+  answeredCount: number;
+  flaggedCount: number;
+  onGoTo: (i: number) => void;
+  onToggleFlagCurrent: () => void;
+  canPrev: boolean;
+  canNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  onCloseMobile?: () => void;
+  currentId?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border border-slate-200 bg-white p-4",
+        compact && "border-0 bg-transparent p-0"
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-bold text-slate-900">Navegación</div>
+          <div className="text-xs text-slate-500 mt-1">
+            Respondidas: <b>{answeredCount}</b> / {exam.length} · Marcadas:{" "}
+            <b>{flaggedCount}</b>
+          </div>
+        </div>
+
+        {!compact && onCloseMobile && (
+          <Button variant="ghost" className="sm:hidden" onClick={onCloseMobile}>
+            Cerrar
+          </Button>
+        )}
+      </div>
+
+      <div className="mt-4 grid grid-cols-6 sm:grid-cols-5 lg:grid-cols-6 gap-2">
+        {exam.map((q, i) => {
+          const isCurrent = i === index;
+          const isAnswered = !!answers[q.id];
+          const isFlagged = !!flagged[q.id];
+
+          return (
+            <button
+              key={q.id}
+              type="button"
+              onClick={() => onGoTo(i)}
+              className={cn(
+                "h-10 rounded-xl border text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500",
+                isCurrent
+                  ? "bg-indigo-600 border-indigo-600 text-white"
+                  : isFlagged
+                  ? "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100"
+                  : isAnswered
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
+                  : "bg-white border-slate-200 text-slate-800 hover:bg-slate-50"
+              )}
+              title={[
+                `Pregunta ${i + 1}`,
+                isAnswered ? "Respondida" : "Sin responder",
+                isFlagged ? "Marcada para revisar" : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            >
+              {i + 1}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2">
+        <Button
+          variant="ghost"
+          onClick={onToggleFlagCurrent}
+          disabled={!currentId}
+          title="Marcar/Desmarcar para revisar"
+        >
+          {currentId && flagged[currentId]
+            ? "Desmarcar revisión"
+            : "Marcar para revisar"}
+        </Button>
+
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            className="flex-1"
+            disabled={!canPrev}
+            onClick={onPrev}
+          >
+            Anterior
+          </Button>
+          <Button
+            variant="ghost"
+            className="flex-1"
+            disabled={!canNext}
+            onClick={onNext}
+          >
+            Siguiente
+          </Button>
+        </div>
+
+        <div className="text-xs text-slate-500">
+          Tip: marca preguntas para revisar, navega con la paleta y tus
+          respuestas quedan guardadas.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------ Page ------------------------------ */
+
 export default function Page() {
   const [phase, setPhase] = useState<Phase>("upload");
   const [error, setError] = useState<string | null>(null);
@@ -176,16 +337,24 @@ export default function Page() {
 
   const [exam, setExam] = useState<Question[]>([]);
   const [index, setIndex] = useState<number>(0);
+
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [flagged, setFlagged] = useState<Record<string, boolean>>({});
+
   const [submitted, setSubmitted] = useState<boolean>(false);
 
-  // Timer control set in startExam event (no Date.now() in render)
   const [startMs, setStartMs] = useState<number>(0);
   const [deadlineMs, setDeadlineMs] = useState<number>(0);
+
+  const [navOpen, setNavOpen] = useState<boolean>(false);
+
+  // Result grading scale
+  const [scaleOver, setScaleOver] = useState<number>(10);
 
   const submitExam = useCallback(() => {
     setSubmitted(true);
     setPhase("result");
+    setNavOpen(false);
   }, []);
 
   const isRunning = phase === "exam" && !submitted;
@@ -210,6 +379,10 @@ export default function Page() {
     return exam.reduce((acc, q) => acc + (answers[q.id] ? 1 : 0), 0);
   }, [exam, answers]);
 
+  const flaggedCount = useMemo(() => {
+    return exam.reduce((acc, q) => acc + (flagged[q.id] ? 1 : 0), 0);
+  }, [exam, flagged]);
+
   const score = useMemo(() => {
     if (exam.length === 0) return { correct: 0, total: 0 };
     let correct = 0;
@@ -220,6 +393,12 @@ export default function Page() {
     }
     return { correct, total: exam.length };
   }, [answers, exam]);
+
+  const finalGrade = useMemo(() => {
+    const total = score.total || 1;
+    const over = clamp(Number(scaleOver || 0), 1, 1000);
+    return (score.correct / total) * over;
+  }, [score.correct, score.total, scaleOver]);
 
   async function onFileUpload(file: File) {
     setError(null);
@@ -251,6 +430,7 @@ export default function Page() {
     setExam(selected);
     setIndex(0);
     setAnswers({});
+    setFlagged({});
     setSubmitted(false);
 
     const s = Date.now();
@@ -258,15 +438,134 @@ export default function Page() {
     setDeadlineMs(s + clamp(minutes, 1, 600) * 60 * 1000);
 
     setPhase("exam");
+    setNavOpen(false);
   }
 
   function chooseOption(qid: string, optKey: string) {
     setAnswers((prev) => ({ ...prev, [qid]: optKey }));
   }
 
-  const shell = (
+  function toggleFlag(qid: string) {
+    setFlagged((prev) => ({ ...prev, [qid]: !prev[qid] }));
+  }
+
+  function goToQuestion(i: number) {
+    setIndex(clamp(i, 0, Math.max(0, exam.length - 1)));
+    setNavOpen(false);
+  }
+
+  /* ------------------------------ Exam TopBar JSX ------------------------------ */
+
+  const ExamTopBar =
+    phase === "exam" && current ? (
+      <div className="sticky top-0 z-30 -mx-4 sm:mx-0 mb-4">
+        <div className="rounded-2xl border border-white/60 bg-white/80 backdrop-blur shadow-lg shadow-indigo-900/10 px-4 py-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center justify-between sm:justify-start gap-3">
+              <div className="text-sm font-bold text-slate-900">
+                Pregunta {index + 1}/{exam.length}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "text-xs font-semibold px-2 py-1 rounded-full border",
+                    answers[current.id]
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                      : "bg-slate-50 border-slate-200 text-slate-600"
+                  )}
+                >
+                  {answers[current.id] ? "Respondida" : "Sin responder"}
+                </span>
+
+                <span
+                  className={cn(
+                    "text-xs font-semibold px-2 py-1 rounded-full border",
+                    flagged[current.id]
+                      ? "bg-amber-50 border-amber-200 text-amber-800"
+                      : "bg-slate-50 border-slate-200 text-slate-600"
+                  )}
+                >
+                  {flagged[current.id] ? "Marcada" : "No marcada"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <Button
+                variant="ghost"
+                className="sm:hidden"
+                onClick={() => setNavOpen(true)}
+                title="Abrir navegación de preguntas"
+              >
+                Preguntas
+              </Button>
+
+              <div className="text-right">
+                <div className="text-xs text-slate-500">Tiempo</div>
+                <div className="text-lg font-extrabold text-slate-900">
+                  {formatMMSS(secondsLeft)}
+                </div>
+              </div>
+
+              <div className="hidden sm:block w-44">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Tiempo</span>
+                  <span>{timeProgress}%</span>
+                </div>
+                <div className="mt-2 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      timeProgress < 70
+                        ? "bg-indigo-500"
+                        : timeProgress < 90
+                        ? "bg-amber-500"
+                        : "bg-rose-500"
+                    )}
+                    style={{ width: `${timeProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <Button
+                variant="danger"
+                onClick={submitExam}
+                title="Enviar examen"
+              >
+                Enviar
+              </Button>
+            </div>
+          </div>
+
+          <div className="sm:hidden mt-3">
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Tiempo</span>
+              <span>{timeProgress}%</span>
+            </div>
+            <div className="mt-2 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  timeProgress < 70
+                    ? "bg-indigo-500"
+                    : timeProgress < 90
+                    ? "bg-amber-500"
+                    : "bg-rose-500"
+                )}
+                style={{ width: `${timeProgress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  /* ------------------------------ Render ------------------------------ */
+
+  return (
     <div className="min-h-dvh bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50">
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -431,131 +730,147 @@ export default function Page() {
           )}
 
           {phase === "exam" && current && (
-            <Card
-              title={`3) Examen (Pregunta ${index + 1} de ${exam.length})`}
-              subtitle={`Respondidas: ${answeredCount}/${exam.length}`}
-              right={
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <div className="text-xs text-slate-500">Tiempo</div>
-                    <div className="text-lg font-extrabold text-slate-900">
-                      {formatMMSS(secondsLeft)}
+            <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
+              <div>
+                {ExamTopBar}
+
+                <Card
+                  title="Examen"
+                  subtitle={`Respondidas: ${answeredCount}/${exam.length} · Marcadas: ${flaggedCount}`}
+                >
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <div className="whitespace-pre-wrap text-base font-semibold text-slate-900">
+                      {current.stem}
                     </div>
-                  </div>
-                </div>
-              }
-            >
-              {/* Timer progress */}
-              <div className="mb-5">
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>Progreso de tiempo</span>
-                  <span>{timeProgress}%</span>
-                </div>
-                <div className="mt-2 h-3 rounded-full bg-slate-100 overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all",
-                      timeProgress < 70
-                        ? "bg-indigo-500"
-                        : timeProgress < 90
-                        ? "bg-amber-500"
-                        : "bg-rose-500"
-                    )}
-                    style={{ width: `${timeProgress}%` }}
-                  />
-                </div>
-              </div>
 
-              {/* Question */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="whitespace-pre-wrap text-base font-semibold text-slate-900">
-                  {current.stem}
-                </div>
-
-                <div className="mt-5 grid gap-3">
-                  {current.options.map((o: { key: string; text: string }) => {
-                    const selected = answers[current.id] === o.key;
-                    return (
-                      <button
-                        key={o.key}
-                        type="button"
-                        onClick={() => chooseOption(current.id, o.key)}
-                        className={cn(
-                          "w-full text-left rounded-2xl border px-4 py-3 transition",
-                          "focus:outline-none focus:ring-2 focus:ring-indigo-500",
-                          selected
-                            ? "border-indigo-300 bg-indigo-50"
-                            : "border-slate-200 bg-white hover:bg-slate-50"
-                        )}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div
+                    <div className="mt-5 grid gap-3">
+                      {current.options.map((o) => {
+                        const selected = answers[current.id] === o.key;
+                        return (
+                          <button
+                            key={o.key}
+                            type="button"
+                            onClick={() => chooseOption(current.id, o.key)}
                             className={cn(
-                              "mt-0.5 h-7 w-7 rounded-full grid place-items-center text-sm font-bold border",
+                              "w-full text-left rounded-2xl border px-4 py-3 transition",
+                              "focus:outline-none focus:ring-2 focus:ring-indigo-500",
                               selected
-                                ? "bg-indigo-600 border-indigo-600 text-white"
-                                : "bg-white border-slate-300 text-slate-700"
+                                ? "border-indigo-300 bg-indigo-50"
+                                : "border-slate-200 bg-white hover:bg-slate-50"
                             )}
                           >
-                            {o.key}
-                          </div>
-                          <div className="text-sm sm:text-base text-slate-900">
-                            {o.text}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                            <div className="flex items-start gap-3">
+                              <OptionBadge k={o.key} active={selected} />
+                              <div className="text-sm sm:text-base text-slate-900">
+                                {o.text}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-5 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                      <Button
+                        variant="ghost"
+                        onClick={() => toggleFlag(current.id)}
+                        title="Marcar/Desmarcar para revisar"
+                      >
+                        {flagged[current.id]
+                          ? "Desmarcar revisión"
+                          : "Marcar para revisar"}
+                      </Button>
+
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          disabled={index === 0}
+                          onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                        >
+                          Anterior
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={index >= exam.length - 1}
+                          onClick={() =>
+                            setIndex((i) => Math.min(exam.length - 1, i + 1))
+                          }
+                        >
+                          Siguiente
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 text-xs text-slate-500">
+                    Al llegar a 0, el examen se envía automáticamente.
+                  </div>
+                </Card>
               </div>
 
-              {/* Navigation */}
-              <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-                <div className="flex gap-3">
-                  <Button
-                    variant="ghost"
-                    disabled={index === 0}
-                    onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    disabled={index >= exam.length - 1}
-                    onClick={() =>
-                      setIndex((i) => Math.min(exam.length - 1, i + 1))
-                    }
-                  >
-                    Siguiente
-                  </Button>
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    variant="danger"
-                    onClick={submitExam}
-                    title="Envía el examen y muestra resultados"
-                  >
-                    Enviar examen
-                  </Button>
-                </div>
+              {/* Desktop right panel */}
+              <div className="hidden lg:block">
+                <NavPanel
+                  compact
+                  exam={exam}
+                  index={index}
+                  answers={answers}
+                  flagged={flagged}
+                  answeredCount={answeredCount}
+                  flaggedCount={flaggedCount}
+                  currentId={current?.id}
+                  onGoTo={(i) => goToQuestion(i)}
+                  onToggleFlagCurrent={() => current && toggleFlag(current.id)}
+                  canPrev={index > 0}
+                  canNext={index < exam.length - 1}
+                  onPrev={() => setIndex((i) => Math.max(0, i - 1))}
+                  onNext={() =>
+                    setIndex((i) => Math.min(exam.length - 1, i + 1))
+                  }
+                />
               </div>
 
-              {/* Helper */}
-              <div className="mt-4 text-xs text-slate-500">
-                Tip: puedes avanzar y volver; tus respuestas quedan guardadas.
-                Al llegar a 0, el examen se envía automáticamente.
-              </div>
-            </Card>
+              {/* Mobile Drawer */}
+              {navOpen && (
+                <div className="lg:hidden fixed inset-0 z-40">
+                  <div
+                    className="absolute inset-0 bg-slate-900/30"
+                    onClick={() => setNavOpen(false)}
+                  />
+                  <div className="absolute right-0 top-0 h-full w-[92%] max-w-sm bg-white shadow-2xl p-4">
+                    <NavPanel
+                      exam={exam}
+                      index={index}
+                      answers={answers}
+                      flagged={flagged}
+                      answeredCount={answeredCount}
+                      flaggedCount={flaggedCount}
+                      currentId={current?.id}
+                      onGoTo={(i) => goToQuestion(i)}
+                      onToggleFlagCurrent={() =>
+                        current && toggleFlag(current.id)
+                      }
+                      canPrev={index > 0}
+                      canNext={index < exam.length - 1}
+                      onPrev={() => setIndex((i) => Math.max(0, i - 1))}
+                      onNext={() =>
+                        setIndex((i) => Math.min(exam.length - 1, i + 1))
+                      }
+                      onCloseMobile={() => setNavOpen(false)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {phase === "result" && (
             <Card
               title="4) Resultados"
-              subtitle="Revisa tu puntaje y, si deseas, analiza respuestas correctas/incorrectas."
+              subtitle="Revisa tu puntaje y analiza respuestas correctas/incorrectas."
               right={
                 <div className="rounded-2xl bg-indigo-50 border border-indigo-100 px-4 py-2">
-                  <div className="text-xs text-indigo-700">Puntaje</div>
+                  <div className="text-xs text-indigo-700">Correctas</div>
                   <div className="text-xl font-extrabold text-indigo-900">
                     {score.correct}/{score.total}
                   </div>
@@ -589,41 +904,76 @@ export default function Page() {
                   </Button>
                 </div>
 
+                {/* Scale */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                  <div className="text-sm font-semibold text-slate-800">
-                    Resumen
-                  </div>
-                  <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
-                    <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                      <div className="text-xs text-slate-500">Correctas</div>
-                      <div className="text-lg font-extrabold text-emerald-600">
-                        {score.correct}
+                  <div className="grid gap-4 sm:grid-cols-3 sm:items-end">
+                    <Input
+                      label="Calificar sobre"
+                      hint="Ej: 10, 20, 100"
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={scaleOver}
+                      onChange={(e) => setScaleOver(Number(e.target.value))}
+                    />
+
+                    <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
+                      <div className="text-xs text-slate-500">Nota final</div>
+                      <div className="text-2xl font-extrabold text-slate-900">
+                        {finalGrade.toFixed(2)} /{" "}
+                        {clamp(Number(scaleOver || 0), 1, 1000)}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        (correctas/total) × sobre
                       </div>
                     </div>
-                    <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                      <div className="text-xs text-slate-500">Incorrectas</div>
-                      <div className="text-lg font-extrabold text-rose-600">
-                        {score.total - score.correct}
-                      </div>
-                    </div>
-                    <div className="rounded-xl bg-slate-50 p-3 border border-slate-100">
-                      <div className="text-xs text-slate-500">Total</div>
-                      <div className="text-lg font-extrabold text-slate-900">
-                        {score.total}
+
+                    <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
+                      <div className="text-xs text-slate-500">Resumen</div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                        <div className="rounded-lg bg-white p-3 border border-slate-100">
+                          <div className="text-xs text-slate-500">
+                            Correctas
+                          </div>
+                          <div className="text-lg font-extrabold text-emerald-600">
+                            {score.correct}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-white p-3 border border-slate-100">
+                          <div className="text-xs text-slate-500">
+                            Incorrectas
+                          </div>
+                          <div className="text-lg font-extrabold text-rose-600">
+                            {score.total - score.correct}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-white p-3 border border-slate-100">
+                          <div className="text-xs text-slate-500">Total</div>
+                          <div className="text-lg font-extrabold text-slate-900">
+                            {score.total}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
+                {/* Review */}
                 <div className="grid gap-3">
                   <div className="text-sm font-semibold text-slate-800">
                     Revisión
                   </div>
+
                   <div className="grid gap-3">
                     {exam.map((q, i) => {
-                      const chosen =
-                        answers[q.id]?.toUpperCase() ?? "(sin responder)";
-                      const ok = chosen === q.answerKey;
+                      const chosenKey = answers[q.id]?.toUpperCase();
+                      const ok = chosenKey && chosenKey === q.answerKey;
+
+                      const chosenText = chosenKey
+                        ? optionText(q, chosenKey)
+                        : null;
+                      const correctText = optionText(q, q.answerKey);
+
                       return (
                         <div
                           key={q.id}
@@ -653,13 +1003,58 @@ export default function Page() {
                             </div>
                           </div>
 
-                          <div className="mt-3 flex flex-col sm:flex-row gap-2 text-sm">
-                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                              Tu respuesta: <b>{chosen}</b>
+                          <div className="mt-4 grid gap-2">
+                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-3">
+                              <div className="text-xs text-slate-500">
+                                Tu respuesta
+                              </div>
+                              <div className="mt-1 flex items-start gap-3">
+                                <OptionBadge
+                                  k={chosenKey ?? "-"}
+                                  active={!!chosenKey}
+                                />
+                                <div className="text-sm text-slate-900">
+                                  {chosenKey
+                                    ? chosenText ?? "(texto no encontrado)"
+                                    : "(sin responder)"}
+                                </div>
+                              </div>
                             </div>
-                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                              Correcta: <b>{q.answerKey}</b>
+
+                            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-3">
+                              <div className="text-xs text-slate-500">
+                                Respuesta correcta
+                              </div>
+                              <div className="mt-1 flex items-start gap-3">
+                                <OptionBadge k={q.answerKey} active />
+                                <div className="text-sm text-slate-900">
+                                  {correctText ?? "(texto no encontrado)"}
+                                </div>
+                              </div>
                             </div>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <Button
+                              variant="ghost"
+                              onClick={() => {
+                                // volver a una pregunta específica desde resultados
+                                setPhase("exam");
+                                setSubmitted(false);
+                                goToQuestion(i);
+                              }}
+                            >
+                              Volver a esta pregunta
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              onClick={() => toggleFlag(q.id)}
+                            >
+                              {flagged[q.id]
+                                ? "Desmarcar revisión"
+                                : "Marcar revisión"}
+                            </Button>
                           </div>
                         </div>
                       );
@@ -677,6 +1072,4 @@ export default function Page() {
       </div>
     </div>
   );
-
-  return shell;
 }
