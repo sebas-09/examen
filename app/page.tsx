@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { parseAiken, type Question } from "@/lib/aiken";
-import { sample } from "@/lib/random";
+import { sample, shuffle } from "@/lib/random";
 import { formatMMSS, useCountdown } from "@/lib/useCountdown";
 
 type Phase = "upload" | "setup" | "exam" | "result";
@@ -13,6 +13,58 @@ function cn(...classes: Array<string | false | null | undefined>) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+/* -------------------- NEW: no repeat until exhaustion -------------------- */
+
+function sampleNoRepeat<T extends { id: string }>(
+  bank: T[],
+  n: number,
+  used: Set<string>,
+): { picked: T[]; usedNext: Set<string> } {
+  const available = bank.filter((q) => !used.has(q.id));
+  const take = Math.min(n, available.length);
+
+  const first = sample(available, take);
+  const usedAfterFirst = new Set<string>([...used, ...first.map((q) => q.id)]);
+
+  // Si no alcanzan preguntas nuevas (banco agotado), reinicio ciclo
+  if (take < n) {
+    const remaining = n - take;
+    const second = sample(bank, remaining);
+    const usedNext = new Set<string>(second.map((q) => q.id)); // reinicio
+    return { picked: [...first, ...second], usedNext };
+  }
+
+  return { picked: first, usedNext: usedAfterFirst };
+}
+
+/* -------------------- NEW: shuffle options + rekey A,B,C -------------------- */
+
+function shuffleAndRekey(q: Question): Question {
+  const shuffledOptions = shuffle(q.options);
+
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  const oldCorrect = q.answerKey.toUpperCase();
+
+  const correctIndex = shuffledOptions.findIndex(
+    (o) => o.key.toUpperCase() === oldCorrect,
+  );
+
+  // Reasignar keys a A,B,C,... para que el UI siempre se vea ordenado
+  const rekeyed = shuffledOptions.map((o, i) => ({
+    key: letters[i],
+    text: o.text,
+  }));
+
+  const newAnswerKey =
+    correctIndex >= 0 ? letters[correctIndex] : q.answerKey.toUpperCase();
+
+  return {
+    ...q,
+    options: rekeyed,
+    answerKey: newAnswerKey,
+  };
 }
 
 /* ----------------------------- UI Components ----------------------------- */
@@ -41,8 +93,8 @@ function Stepper({ phase }: { phase: Phase }) {
                     done
                       ? "bg-emerald-500 border-emerald-500 text-white"
                       : active
-                      ? "bg-indigo-600 border-indigo-600 text-white"
-                      : "bg-white/70 border-slate-200 text-slate-500"
+                        ? "bg-indigo-600 border-indigo-600 text-white"
+                        : "bg-white/70 border-slate-200 text-slate-500",
                   )}
                 >
                   {i + 1}
@@ -50,7 +102,7 @@ function Stepper({ phase }: { phase: Phase }) {
                 <div
                   className={cn(
                     "text-sm font-medium",
-                    active ? "text-slate-900" : "text-slate-500"
+                    active ? "text-slate-900" : "text-slate-500",
                   )}
                 >
                   {s.label}
@@ -62,8 +114,8 @@ function Stepper({ phase }: { phase: Phase }) {
                   done
                     ? "bg-emerald-400"
                     : active
-                    ? "bg-indigo-400"
-                    : "bg-slate-200"
+                      ? "bg-indigo-400"
+                      : "bg-slate-200",
                 )}
               />
             </div>
@@ -141,7 +193,7 @@ function Input({
         {...props}
         className={cn(
           "mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900",
-          "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
         )}
       />
     </label>
@@ -159,14 +211,12 @@ function TextArea({
         {...props}
         className={cn(
           "mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900",
-          "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          "placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
         )}
       />
     </label>
   );
 }
-
-/* ------------------------- Helpers for option text ------------------------ */
 
 function optionText(q: Question, key: string | undefined) {
   if (!key) return null;
@@ -182,15 +232,13 @@ function OptionBadge({ k, active }: { k: string; active?: boolean }) {
         "mt-0.5 h-7 w-7 rounded-full grid place-items-center text-sm font-bold border",
         active
           ? "bg-indigo-600 border-indigo-600 text-white"
-          : "bg-white border-slate-300 text-slate-700"
+          : "bg-white border-slate-300 text-slate-700",
       )}
     >
       {k}
     </div>
   );
 }
-
-/* ----------------------------- NavPanel (OUTSIDE Page) ----------------------------- */
 
 function NavPanel({
   compact,
@@ -229,7 +277,7 @@ function NavPanel({
     <div
       className={cn(
         "rounded-2xl border border-slate-200 bg-white p-4",
-        compact && "border-0 bg-transparent p-0"
+        compact && "border-0 bg-transparent p-0",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -264,10 +312,10 @@ function NavPanel({
                 isCurrent
                   ? "bg-indigo-600 border-indigo-600 text-white"
                   : isFlagged
-                  ? "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100"
-                  : isAnswered
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
-                  : "bg-white border-slate-200 text-slate-800 hover:bg-slate-50"
+                    ? "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100"
+                    : isAnswered
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100"
+                      : "bg-white border-slate-200 text-slate-800 hover:bg-slate-50",
               )}
               title={[
                 `Pregunta ${i + 1}`,
@@ -351,6 +399,9 @@ export default function Page() {
   // Result grading scale
   const [scaleOver, setScaleOver] = useState<number>(10);
 
+  // NEW: used question ids to avoid repetition across retries
+  const [usedIds, setUsedIds] = useState<Set<string>>(new Set());
+
   const submitExam = useCallback(() => {
     setSubmitted(true);
     setPhase("result");
@@ -408,6 +459,10 @@ export default function Page() {
     try {
       const parsed = parseAiken(text);
       setBank(parsed);
+
+      // NEW: reset usedIds when loading a new bank
+      setUsedIds(new Set());
+
       setPhase("setup");
     } catch (e: unknown) {
       const msg =
@@ -425,9 +480,16 @@ export default function Page() {
     }
 
     const n = clamp(nQuestions, 1, bank.length);
-    const selected = sample(bank, n);
+
+    // NEW: no repeat until exhaustion
+    const { picked, usedNext } = sampleNoRepeat(bank, n, usedIds);
+
+    // NEW: shuffle options + rekey A,B,C
+    const selected = picked.map(shuffleAndRekey);
 
     setExam(selected);
+    setUsedIds(usedNext);
+
     setIndex(0);
     setAnswers({});
     setFlagged({});
@@ -454,8 +516,6 @@ export default function Page() {
     setNavOpen(false);
   }
 
-  /* ------------------------------ Exam TopBar JSX ------------------------------ */
-
   const ExamTopBar =
     phase === "exam" && current ? (
       <div className="sticky top-0 z-30 -mx-4 sm:mx-0 mb-4">
@@ -472,7 +532,7 @@ export default function Page() {
                     "text-xs font-semibold px-2 py-1 rounded-full border",
                     answers[current.id]
                       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                      : "bg-slate-50 border-slate-200 text-slate-600"
+                      : "bg-slate-50 border-slate-200 text-slate-600",
                   )}
                 >
                   {answers[current.id] ? "Respondida" : "Sin responder"}
@@ -483,7 +543,7 @@ export default function Page() {
                     "text-xs font-semibold px-2 py-1 rounded-full border",
                     flagged[current.id]
                       ? "bg-amber-50 border-amber-200 text-amber-800"
-                      : "bg-slate-50 border-slate-200 text-slate-600"
+                      : "bg-slate-50 border-slate-200 text-slate-600",
                   )}
                 >
                   {flagged[current.id] ? "Marcada" : "No marcada"}
@@ -520,8 +580,8 @@ export default function Page() {
                       timeProgress < 70
                         ? "bg-indigo-500"
                         : timeProgress < 90
-                        ? "bg-amber-500"
-                        : "bg-rose-500"
+                          ? "bg-amber-500"
+                          : "bg-rose-500",
                     )}
                     style={{ width: `${timeProgress}%` }}
                   />
@@ -550,8 +610,8 @@ export default function Page() {
                   timeProgress < 70
                     ? "bg-indigo-500"
                     : timeProgress < 90
-                    ? "bg-amber-500"
-                    : "bg-rose-500"
+                      ? "bg-amber-500"
+                      : "bg-rose-500",
                 )}
                 style={{ width: `${timeProgress}%` }}
               />
@@ -561,12 +621,9 @@ export default function Page() {
       </div>
     ) : null;
 
-  /* ------------------------------ Render ------------------------------ */
-
   return (
     <div className="min-h-dvh bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
@@ -582,7 +639,6 @@ export default function Page() {
           </div>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-rose-900">
             <div className="font-semibold">Ocurrió un problema</div>
@@ -590,7 +646,6 @@ export default function Page() {
           </div>
         )}
 
-        {/* Content */}
         <div className="mt-6">
           {phase === "upload" && (
             <Card
@@ -651,6 +706,10 @@ export default function Page() {
                         try {
                           const parsed = parseAiken(raw);
                           setBank(parsed);
+
+                          // NEW: reset usedIds when loading a new bank
+                          setUsedIds(new Set());
+
                           setPhase("setup");
                         } catch (e: unknown) {
                           const msg =
@@ -710,8 +769,12 @@ export default function Page() {
                       <div className="mt-1 text-sm text-slate-600">
                         Se seleccionarán{" "}
                         <b>{clamp(nQuestions, 1, bank.length || 1)}</b>{" "}
-                        preguntas aleatorias y tendrás{" "}
-                        <b>{clamp(minutes, 1, 600)}</b> minutos para responder.
+                        preguntas y tendrás <b>{clamp(minutes, 1, 600)}</b>{" "}
+                        minutos.
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500">
+                        Nota: el sistema evita repetir preguntas entre
+                        reintentos hasta agotar el banco.
                       </div>
                     </div>
                     <div className="flex gap-3">
@@ -756,7 +819,7 @@ export default function Page() {
                               "focus:outline-none focus:ring-2 focus:ring-indigo-500",
                               selected
                                 ? "border-indigo-300 bg-indigo-50"
-                                : "border-slate-200 bg-white hover:bg-slate-50"
+                                : "border-slate-200 bg-white hover:bg-slate-50",
                             )}
                           >
                             <div className="flex items-start gap-3">
@@ -774,7 +837,6 @@ export default function Page() {
                       <Button
                         variant="ghost"
                         onClick={() => toggleFlag(current.id)}
-                        title="Marcar/Desmarcar para revisar"
                       >
                         {flagged[current.id]
                           ? "Desmarcar revisión"
@@ -808,7 +870,6 @@ export default function Page() {
                 </Card>
               </div>
 
-              {/* Desktop right panel */}
               <div className="hidden lg:block">
                 <NavPanel
                   compact
@@ -830,7 +891,6 @@ export default function Page() {
                 />
               </div>
 
-              {/* Mobile Drawer */}
               {navOpen && (
                 <div className="lg:hidden fixed inset-0 z-40">
                   <div
@@ -898,13 +958,13 @@ export default function Page() {
                       setBank([]);
                       setRaw("");
                       setSubmitted(false);
+                      setUsedIds(new Set());
                     }}
                   >
                     Cargar otro archivo
                   </Button>
                 </div>
 
-                {/* Scale */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-5">
                   <div className="grid gap-4 sm:grid-cols-3 sm:items-end">
                     <Input
@@ -958,7 +1018,6 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* Review */}
                 <div className="grid gap-3">
                   <div className="text-sm font-semibold text-slate-800">
                     Revisión
@@ -979,7 +1038,7 @@ export default function Page() {
                           key={q.id}
                           className={cn(
                             "rounded-2xl border p-4 bg-white",
-                            ok ? "border-emerald-200" : "border-rose-200"
+                            ok ? "border-emerald-200" : "border-rose-200",
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
@@ -996,7 +1055,7 @@ export default function Page() {
                                 "shrink-0 rounded-xl px-3 py-2 text-xs font-bold border",
                                 ok
                                   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                  : "bg-rose-50 text-rose-700 border-rose-200"
+                                  : "bg-rose-50 text-rose-700 border-rose-200",
                               )}
                             >
                               {ok ? "OK" : "X"}
@@ -1015,7 +1074,7 @@ export default function Page() {
                                 />
                                 <div className="text-sm text-slate-900">
                                   {chosenKey
-                                    ? chosenText ?? "(texto no encontrado)"
+                                    ? (chosenText ?? "(texto no encontrado)")
                                     : "(sin responder)"}
                                 </div>
                               </div>
@@ -1038,7 +1097,6 @@ export default function Page() {
                             <Button
                               variant="ghost"
                               onClick={() => {
-                                // volver a una pregunta específica desde resultados
                                 setPhase("exam");
                                 setSubmitted(false);
                                 goToQuestion(i);
